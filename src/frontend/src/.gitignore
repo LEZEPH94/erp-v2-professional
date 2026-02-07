@@ -1,0 +1,16 @@
+# Dépendances Node.js (Trop lourd)
+node_modules/
+npm-debug.log
+
+# Python (Fichiers compilés et cache)
+__pycache__/
+*.py[cod]
+venv/
+.env
+
+# Docker (Données de base de données)
+postgres_data/
+
+# Système
+.DS_Store
+Thumbs.db

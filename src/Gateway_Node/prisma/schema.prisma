@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")  // <--- C'est la seule chose qui doit être écrite ici
+}
+
+model JournalEntry {
+  id          Int           @id @default(autoincrement())
+  date        DateTime      @default(now())
+  reference   String        @unique
+  description String
+  status      String        @default("DRAFT")
+  items       JournalItem[]
+}
+
+model JournalItem {
+  id            Int          @id @default(autoincrement())
+  journalEntryId Int
+  account_id    String
+  debit         Float        @default(0.0)
+  credit        Float        @default(0.0)
+  journalEntry  JournalEntry @relation(fields: [journalEntryId], references: [id])
+}
+
+model User {
+  id       Int    @id @default(autoincrement())
+  email    String @unique
+  password String
+  role     String @default("admin")
+}

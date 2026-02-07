@@ -1,0 +1,7 @@
+fastapi>=0.100.0
+uvicorn>=0.23.0
+sqlalchemy>=2.0.0  # Pour parler à la base de données (ORM Standard)
+psycopg2-binary>=2.9.0 # Le driver PostgreSQL
+python-dotenv>=1.0.0
+pydantic>=2.0.0    # Pour la validation stricte des données (Norme !)
+reportlab

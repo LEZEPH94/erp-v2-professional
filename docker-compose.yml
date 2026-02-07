@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # 1. LA BASE DE DONNÉES (Le Coffre)
+  database:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=user            # <--- Nom standard
+      - POSTGRES_PASSWORD=password    # <--- Mot de passe standard
+      - POSTGRES_DB=erp_v2_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - erp_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d erp_v2_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. LE CERVEAU (Python)
+  python_engine:
+    build:
+      context: ./src/Engine_Python
+      dockerfile: Dockerfile
+    volumes:
+      - ./src/Engine_Python:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - erp_network
+    environment:
+      - DATABASE_URL=postgresql://user:password@database/erp_v2_db
+
+  # 3. LE PORTIER (Node.js)
+  node_api:
+    build:
+      context: ./src/Gateway_Node
+      dockerfile: Dockerfile
+    volumes:
+      - ./src/Gateway_Node:/app
+    ports:
+      - "3000:3000"
+    depends_on:
+      - python_engine
+    networks:
+      - erp_network
+    environment:
+      # ATTENTION : C'est ici que tu avais "admin_erp". On remet "user".
+      - DATABASE_URL=postgresql://user:password@database:5432/erp_v2_db?schema=public
+      - PYTHON_URL=http://python_engine:8000
+      - JWT_SECRET=super_secret_key_2026
+
+  # 4. L'INTERFACE (React)
+  frontend:
+    build:
+      context: ./src/Frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./src/Frontend/src:/app/src
+    environment:
+      - VITE_API_URL=http://localhost:3000
+    depends_on:
+      - node_api
+    networks:
+      - erp_network
+
+networks:
+  erp_network:
+
+volumes:
+  postgres_data:
