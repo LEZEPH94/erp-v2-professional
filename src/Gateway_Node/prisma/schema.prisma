@@ -31,3 +31,10 @@ model User {
   password String
   role     String @default("admin")
 }
+
+model Product {
+  id       Int     @id @default(autoincrement())
+  name     String  @unique
+  price    Float
+  quantity Int     @default(0)
+}

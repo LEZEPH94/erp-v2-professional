@@ -33,6 +33,12 @@ class JournalItem(Base):
     debit = Column(Float, default=0.0)
     credit = Column(Float, default=0.0)
     entry = relationship("JournalEntry", back_populates="items")
+class Product(Base):
+    __tablename__ = "Product"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    price = Column(Float)
+    quantity = Column(Integer, default=0)
 
 Base.metadata.create_all(bind=engine)
 
@@ -56,36 +62,52 @@ class FactureRequest(BaseModel):
 # --- ROUTE 1 : CRÉER FACTURE (VENTE) ---
 @app.post("/compta/facture")
 def creer_facture(facture: FactureRequest, db: Session = Depends(get_db)):
+    # 1. Création de l'écriture comptable
     entry = JournalEntry(reference=facture.reference, description=facture.description, status="VALIDATED")
     db.add(entry)
-    db.commit()
+    
+    # 2. Gestion automatique du STOCK (Nouveau !)
+    # On cherche si un produit porte le même nom que la description
+    produit = db.query(Product).filter(Product.name == facture.description).first()
+    if produit:
+        produit.quantity -= 1  # On vend, donc on retire 1 du stock
+    
+    db.commit() # On sauvegarde tout (Compta + Stock)
 
-    # Écriture comptable (Vente)
-    ligne_client = JournalItem(journalEntryId=entry.id, account_id="411", debit=facture.montant_ht * 1.20, credit=0)
+    # 3. Écritures comptables
+    tva = facture.montant_ht * 0.20
+    ttc = facture.montant_ht + tva
+    ligne_client = JournalItem(journalEntryId=entry.id, account_id="411", debit=ttc, credit=0)
     ligne_vente = JournalItem(journalEntryId=entry.id, account_id="701", debit=0, credit=facture.montant_ht)
-    ligne_tva = JournalItem(journalEntryId=entry.id, account_id="445", debit=0, credit=facture.montant_ht * 0.20)
+    ligne_tva = JournalItem(journalEntryId=entry.id, account_id="445", debit=0, credit=tva)
 
     db.add_all([ligne_client, ligne_vente, ligne_tva])
     db.commit()
     
-    return {"message": "Facture validée", "entry_id": entry.id, "equilibre": True, 
-            "detail": {"Debit_Client": ligne_client.debit, "Credit_Vente": ligne_vente.credit, "Credit_TVA": ligne_tva.credit}}
+    return {"message": "Vente validée et Stock mis à jour", "entry_id": entry.id}
 
 # --- ROUTE 2 : CRÉER DÉPENSE (ACHAT) ---
 @app.post("/compta/depense")
 def creer_depense(facture: FactureRequest, db: Session = Depends(get_db)):
+    # 1. Création de l'écriture
     entry = JournalEntry(reference=facture.reference, description=facture.description, status="VALIDATED")
     db.add(entry)
+
+    # 2. Gestion automatique du STOCK (Nouveau !)
+    produit = db.query(Product).filter(Product.name == facture.description).first()
+    if produit:
+        produit.quantity += 1  # On achète, donc on ajoute 1 au stock
+
     db.commit()
 
-    # Écriture comptable (Achat : Charge au Débit, Dette Fournisseur au Crédit)
+    # 3. Écritures comptables
     ligne_charge = JournalItem(journalEntryId=entry.id, account_id="601", debit=facture.montant_ht, credit=0)
     ligne_fournisseur = JournalItem(journalEntryId=entry.id, account_id="401", debit=0, credit=facture.montant_ht)
 
     db.add_all([ligne_charge, ligne_fournisseur])
     db.commit()
 
-    return {"message": "Dépense enregistrée", "entry_id": entry.id}
+    return {"message": "Dépense enregistrée et Stock mis à jour", "entry_id": entry.id}
 
 # --- ROUTE 3 : LECTURE JOURNAL ---
 @app.get("/compta/ecritures")
@@ -111,6 +133,33 @@ def get_kpi(db: Session = Depends(get_db)):
         "tva_total": total_tva
     }
 
+# --- ROUTE STOCK : AJOUTER PRODUIT ---
+class ProductRequest(BaseModel):
+    name: str
+    price: float
+    quantity: int
+
+@app.post("/stock/produit")
+def creer_produit(produit: ProductRequest, db: Session = Depends(get_db)):
+    # Vérifie si le produit existe déjà
+    existing = db.query(Product).filter(Product.name == produit.name).first()
+    if existing:
+        # Si oui, on met à jour la quantité et le prix
+        existing.quantity += produit.quantity
+        existing.price = produit.price # Mise à jour du prix
+        db.commit()
+        return {"message": "Stock mis à jour", "id": existing.id, "new_quantity": existing.quantity}
+    else:
+        # Sinon, on crée le produit
+        new_product = Product(name=produit.name, price=produit.price, quantity=produit.quantity)
+        db.add(new_product)
+        db.commit()
+        return {"message": "Produit créé", "id": new_product.id}
+
+# --- ROUTE STOCK : LIRE STOCK ---
+@app.get("/stock")
+def lire_stock(db: Session = Depends(get_db)):
+    return db.query(Product).all()
 # --- ROUTE 5 : GÉNÉRER PDF ---
 @app.get("/compta/facture/{id}/pdf")
 def generer_pdf(id: int, db: Session = Depends(get_db)):
